@@ -261,14 +261,23 @@ struct Reply process_command(int sockfd, char* command, char* name) {
             return reply;
         }
         
+        char* message = "Warning: the chat room is going to be closed...";
+        
+        // Send messages to connected clients and close sockets
+        sem_wait(&rm_mutex);
         for(int i = 0; i < MAX_MEMBER; i++) {
-            char* message = "Warning: the chat room is going to be closed...";
+            
             int slave_socket = room_db[room_idx]->slave_socket[i];
             if(slave_socket != -1) {
                 printf("Sending to %i\n", room_db[room_idx]->slave_socket[i]);
-                write(slave_socket, message, sizeof(message));
+                write(slave_socket, message, strlen(message));
             }
+            close(slave_socket);
         }
+        sem_post(&rm_mutex);
+        free(room_db[room_idx]->slave_socket);
+        free(room_db[room_idx]);
+        room_db[room_idx] = NULL;
         
         return reply;
     } else if (strcmp(command, "LIST") == 0) {
@@ -400,10 +409,11 @@ void* chatroom(void* name) {
             }
         }
         printf("\n");
-        
+        sem_post(&rm_mutex);
         // printf("Number: %i\n", room_idx);
         
         // Add socket fd to slave sockets
+        sem_wait(&rm_mutex);
         if((room_db[room_idx]) != NULL) {
             for(int i = 0; i < MAX_ROOM; i++) {
                 int slave_socket = room_db[room_idx]->slave_socket[i];
@@ -440,7 +450,6 @@ void* cr_slave(void* args) {
     int valread;
     
     sem_wait(&rm_mutex);
-    
     int room_idx = -1;
     for(int i = 0; i < MAX_ROOM; i++) {
         if(room_db[i] != NULL) {
@@ -451,6 +460,7 @@ void* cr_slave(void* args) {
             }
         }
     }
+    sem_post(&rm_mutex);
     
     char message[MAX_DATA];
     while( (valread = read(sockfd, message, MAX_DATA)) > 0 ) {
